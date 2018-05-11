@@ -22,3 +22,7 @@ The UDA git repository can be cloned using:
 ## Building UDA
 
 See [Building UDA](./docs/build.md).
+
+## Creating Plugins
+
+See [Creating Plugins](./docs/plugins.md)

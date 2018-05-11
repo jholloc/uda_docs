@@ -85,6 +85,137 @@ for `cmake` to replace using the `@VARNAME@` sytnax. I.e. `export MY_PLUGIN_FILE
 would get replaced with `export MY_PLUGIN_FILE=/usr/local/share/my_file.txt` if UDA is being installed into `/usr/local`.
  
 
+### Writing a plugin
+
+The entry function (as specified in `ENTRY_FUNC` in the build configuration) to your plugin must look like
+
+    int entryFunc(IDAM_PLUGIN_INTERFACE* idam_plugin_interface)
+    {
+        ...
+    }
+
+The basic headers you will need to include to allow this to build are:
+
+    #include <plugins/udaPlugin.h>
+
+Other headers your are likely to need include:
+
+    #include <clientserver/errorLog.h>
+    #include <clientserver/initStructs.h>
+    #include <clientserver/stringUtils.h>
+    #include <clientserver/udaTypes.h>
+    #include <logging/logging.h>
+    
+The `IDAM_PLUGIN_INTERFACE` contains the following data:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| interfaceVersion | unsigned short | The version of the plugin interface being passed. This is currently 1 -- if the version is higher than you expect then the plugin should report and error and exit. |
+| pluginVersion | unsigned short | An out field to assign the version of your plugin that has been called. |
+| housekeeping | unsigned short | A flag set to 1 if the plugin is being run in housekeeping mode -- in this mode you should tidy up an resources and exit. |
+| changePlugin | unsigned short | An out field to set whether another plugin should be called after this one has finished. |
+| dbgout | FILE* | The debug stream which can be written to (might be NULL -- in which case debug messages are being ignored). |
+| errout | FILE* | The error stream which can be written to (might be NULL -- in which case errors are being ignored). |
+| data_block | DATA_BLOCK* | The main data structure that should be populated. |
+| request_block | REQUEST_BLOCK* | The structure that details the request being made to the plugin. |
+| environment | const ENVIRONMENT* | A structure containing details about the environment in which the server has been run -- environmental variables etc. |
+| pluginList | const PLUGINLIST* | The list of available plugins that can be called directly. |
+
+The `request_block` field of the `IDAM_PLUGIN_INTERFACE` structure is how the function being called is specified. You should
+check the value of the `request_block->function` element and respond accordingly.
+
+For example
+
+    REQUEST_BLOCK* request_block = idam_plugin_interface->request_block;
+    
+    if (STR_IEQUALS(request_block->function, "help")) {
+        err = do_help(idam_plugin_interface);
+    }
+    
+Here we are responding the `help()` function call by calling a `do_help` function. The `STR_IEQUALS` is a helper macro
+defined in `udaPlugins.h` which tests for case-insensitive string equality.
+
+Inside the function to handle a specific plugin function call you need to do the following:
+
+1. Extract the function arguments from the `request_block->nameValueList` structure.
+2. Perform the appropriate calculation.
+3. Add the data to return to the `data_block` structure and return 0, or log an error and return \< 0.
+
+
+#### Extracting function arguments
+
+There are help methods and macros to extract the function arguments.
+
+To extract a required value you can use `FIND_REQUIRED_<TYPE>_VALUE(NAME_VALUE_LIST, VARIABLE)`
+(where `<TYPE>` is one of `INT`, `SHORT`, `CHAR`, `FLOAT` or `STRING`). When using this macro the `VARIABLE` is used as
+both the name of variable to write the data but also the variable name to look for in the name-value list. I.e.
+
+    int shot = 0;
+    FIND_REQUIRED_INT_VALUE(request_block->nameValueList, shot);
+    
+Will look for an argument that has been passed to the plugin as `shot=999` as well as write this value to the `shot`
+C variable.
+
+If the argument is not required you can use the `FIND_<TYPE>_VALUE(NAME_VALUE_LIST, VARIABLE)` macro which works in the
+same way as the `FIND_REQUIRED_<TYPE>_VALUE` macro except no error is thrown if the variable is not found.
+
+Arrays can also be passed as UDA plugin arguments using `;` separated lists, i.e. `PLUGIN::func(mylist=1;2;3;4)` passes
+the list `[1, 2, 3, 4]` as the `mylist` argument. The macros `FIND_REQUIRED_<TYPE>_ARRAY` and `FIND_<TYPE>_ARRAY` are
+available to extract these list arguments. These macros require an integer variable to exist with the name
+`n<VARIABLE>` which is used to write the length of the list found. I.e.
+
+    int* indices = NULL;
+    size_t nindices = 0;
+    FIND_REQUIRED_INT_ARRAY(request_block->nameValueList, indices);
+
+Will extract values from `indices=1;2;3` and set the `indices` to be equal to the array of these values, with `nindices`
+equal to the number of values found.
+
+#### Setting the return data
+
+The data to be returned by the plugin needs to be set using the `data_block` field on the `IDAM_PLUGIN_INTERFACE` structure.
+The important fields on the `DATA_BLOCK` structure that need to be set are:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| rank | unsigned int | The number of dimensions of the data -- for scalar data set this to 0 and `dims` to `NULL`. |
+| data_type | int | The type of the data -- should be one of values of the `UDA_TYPE` enum in `udaTypes.h`. |
+| data_n | int | The number of elements of data being returned. |
+| data | char* | The actual data returned. |
+| dims | DIMS* | An array of `DIMS` structures specifying the dimensions of the data. |
+
+If `rank` \> 0 then you also need to set the `dims` field to an array describing the dimensions of the data. The important
+fields of the `DIMS` structure that need to be set are:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| data_type | int | The type of the dimension data -- should be one of values of the `UDA_TYPE` enum in `udaTypes.h`. |
+| dim_n | int | The number of elements dimension data being returned. |
+| dim | char* | The actual dimension data returned. |
+
+You can also set a dimension to be automatically generated by setting `compressed=1`, `dim0` to the starting value and
+`diff` to be the dimension stride. In this case `dim` can be `NULL`. I.e.
+
+    DIMS dim;
+    dim.compressed = 1;
+    dim.dim_n = 100;
+    dim.dim0 = 0;
+    dim.diff = 1;
+    dim.dim = NULL;
+    
+Would generate the dimension `[0, 1, 2, 3, ..., 99]`.
+
+There are also helper functions to allow easy returning of common types of data. These are:
+
+    setReturnData<TYPE>Array(DATA_BLOCK* data_block, float* values, size_t rank, const size_t* shape, const char* description);
+    setReturnData<TYPE>Scalar(DATA_BLOCK* data_block, float value, const char* description);
+    setReturnDataString(DATA_BLOCK* data_block, const char* value, const char* description);
+            
+Where `<TYPE>` is one of `Float`, `Double`, `Int`, `Long` and `Short`.
+
+In these helper functions `description` is an optional description to add to the returned data and can be `NULL`.
+
+
 ## Writing plugin tests
 
 *TODO*
