@@ -132,29 +132,30 @@ For example
         err = do_help(idam_plugin_interface);
     }
     
-Here we are responding the `help()` function call by calling a `do_help` function. The `STR_IEQUALS` is a helper macro
+Here we are responding the `PLUGIN::help(...)` function call by calling a `do_help` function. The `STR_IEQUALS` is a helper macro
 defined in `udaPlugins.h` which tests for case-insensitive string equality.
 
-Inside the function to handle a specific plugin function call you need to do the following:
+Inside the function created to handle a specific plugin function call you need to do the following:
 
 1. Extract the function arguments from the `request_block->nameValueList` structure.
-2. Perform the appropriate calculation.
-3. Add the data to return to the `data_block` structure and return 0, or log an error and return \< 0.
+2. Perform the appropriate calculations.
+3. Set the data to return into the `data_block` structure and return 0, or log an error and return \< 0.
 
 
 #### Extracting function arguments
 
-There are help methods and macros to extract the function arguments.
+There are helper methods and macros to extract the function arguments.
 
 To extract a required value you can use `FIND_REQUIRED_<TYPE>_VALUE(NAME_VALUE_LIST, VARIABLE)`
-(where `<TYPE>` is one of `INT`, `SHORT`, `CHAR`, `FLOAT` or `STRING`). When using this macro the `VARIABLE` is used as
-both the name of variable to write the data but also the variable name to look for in the name-value list. I.e.
+(where `<TYPE>` is one of `INT`, `SHORT`, `CHAR`, `FLOAT` or `STRING`). When using this macro the `VARIABLE` parameter
+is used as both the name of the variable to write the data into, and also the variable name to look for in the name-value list.
+I.e.
 
     int shot = 0;
     FIND_REQUIRED_INT_VALUE(request_block->nameValueList, shot);
     
-Will look for an argument that has been passed to the plugin as `shot=999` as well as write this value to the `shot`
-C variable.
+will look for an argument that has been passed to the plugin as `shot=???` and write this value to the `shot`
+integer variable.
 
 If the argument is not required you can use the `FIND_<TYPE>_VALUE(NAME_VALUE_LIST, VARIABLE)` macro which works in the
 same way as the `FIND_REQUIRED_<TYPE>_VALUE` macro except no error is thrown if the variable is not found.
@@ -168,7 +169,7 @@ available to extract these list arguments. These macros require an integer varia
     size_t nindices = 0;
     FIND_REQUIRED_INT_ARRAY(request_block->nameValueList, indices);
 
-Will extract values from `indices=1;2;3` and set the `indices` to be equal to the array of these values, with `nindices`
+will extract values from `indices=1;2;3` and set the `indices` to be equal to the array of these values, with `nindices`
 equal to the number of values found.
 
 #### Setting the return data
